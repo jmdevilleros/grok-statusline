@@ -36,8 +36,8 @@ refresh_interval = 300
 
 - The label is `week` or `month`, depending on your plan.
 - The bar is white under 80%, yellow from 80%, and red from 95%.
-- The value is cached in `~/.grok/statusline-weekly.json`. Busy turns re-run the script constantly, so it only fetches when the timer fires or the cache is older than 5 minutes.
-- If a request fails, it keeps showing the last known percent.
+- The value is cached in `~/.grok/statusline-weekly.json`. Starting Grok fetches once, even when that cache is still fresh, so a reset that happened while Grok was closed shows up on the first paint. After that, busy turns reuse the cache. The script fetches again when the timer fires or the cache is older than 5 minutes.
+- If a request fails, it keeps showing the last known percent. A failed launch fetch is not retried on every redraw. The timer or the 5-minute expiry asks again.
 
 ## Security
 
