@@ -95,19 +95,57 @@ def fetch_weekly():
     return payload
 
 
-def weekly_segment(trigger):
+def session_attached_at(data, now):
+    """Seconds since epoch when this process attached the session."""
+    cost = data.get("cost") if isinstance(data, dict) else None
+    duration = cost.get("total_duration_ms") if isinstance(cost, dict) else None
+    if not isinstance(duration, (int, float)) or duration < 0:
+        return None
+    return now - int(duration) // 1000
+
+
+def launch_already_checked(cached, attached):
+    if attached is None or not isinstance(cached, dict):
+        return False
+    checked = cached.get("launch_checked_at")
+    return isinstance(checked, int) and abs(checked - attached) < 2
+
+
+def should_refresh_on_launch(cached, attached):
+    """True once per process attach when the cache was written by an earlier run."""
+    if attached is None or launch_already_checked(cached, attached):
+        return False
+    fetched = cached.get("fetched_at") if isinstance(cached, dict) else None
+    if not isinstance(fetched, int):
+        return True
+    return fetched < attached
+
+
+def mark_launch_checked(cached, attached):
+    payload = dict(cached) if isinstance(cached, dict) else {}
+    payload["launch_checked_at"] = attached
+    write_cache(payload)
+
+
+def weekly_segment(trigger, data):
     cached = read_cache()
     now = int(time.time())
+    attached = session_attached_at(data, now)
     fresh = (
         isinstance(cached, dict)
         and isinstance(cached.get("fetched_at"), int)
         and now - cached["fetched_at"] < CACHE_TTL
         and isinstance(cached.get("percent"), int)
     )
-    if trigger == "refresh_interval" or not fresh:
+    launch = should_refresh_on_launch(cached, attached)
+    # Busy turns re-run this script constantly. Fetch on the timer, when the
+    # cache is missing or older than the TTL, and once per Grok launch.
+    if trigger == "refresh_interval" or not fresh or launch:
         fetched = fetch_weekly()
         if fetched is not None:
             cached = fetched
+        elif launch:
+            mark_launch_checked(cached, attached)
     if not isinstance(cached, dict) or not isinstance(cached.get("percent"), int):
         return None
     percent = max(0, min(100, cached["percent"]))
@@ -135,7 +173,7 @@ def main():
     used = window.get("used_percentage")
     if isinstance(used, int):
         parts.append(f"{used}% ctx")
-    weekly = weekly_segment(data.get("trigger"))
+    weekly = weekly_segment(data.get("trigger"), data)
     if weekly:
         parts.append(weekly)
     if parts:
